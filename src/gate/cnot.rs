@@ -1,5 +1,5 @@
 use super::Gate;
-use crate::State;
+use crate::{State, PW};
 
 pub struct CNotGate {
     pub target: usize,
@@ -10,8 +10,8 @@ impl Gate for CNotGate {
     fn apply(&self, state: &mut State) {
         let b5 = self.target >> 5;
         let c5 = self.control >> 5;
-        let pwb = state.pw[self.target & 31];
-        let pwc = state.pw[self.control & 31];
+        let pwb = PW[self.target & 31];
+        let pwc = PW[self.control & 31];
         for i in 0..2 * state.n {
             if state.x[i][b5] & pwb > 0 {
                 state.x[i][c5] ^= pwc;

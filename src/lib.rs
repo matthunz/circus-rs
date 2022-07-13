@@ -6,45 +6,49 @@ pub enum Instruction {
     Measure { target: usize },
 }
 
+const PW: [u64; 32] = {
+    let mut pw = [1; 32];
+    let mut i = 1;
+    while i < 32 {
+        pw[i] = 2 * pw[i - 1];
+        i += 1;
+    }
+    pw
+};
+
 pub struct State {
     n: usize,
-    x: Vec<Vec<u64>>,
-    z: Vec<Vec<u64>>,
-    r: Vec<i32>,
+    x: Box<[Box<[u64]>]>,
+    z: Box<[Box<[u64]>]>,
+    r: Box<[i32]>,
     over32: usize,
-    pw: [u64; 32],
 }
 
 impl State {
+    /// Create a quantum state with `n` number of qubits.
     pub fn new(n: usize) -> Self {
         let len = 2 * n + 1;
         let over32 = (n >> 5) + 1;
-        let mut x = vec![vec![0; over32]; len];
-        let mut z = vec![vec![0; over32]; len];
-        let r = vec![0; len];
-
-        let mut pw = [1; 32];
-        for i in 1..pw.len() {
-            pw[i] = 2 * pw[i - 1];
-        }
+        let mut x = (0..len)
+            .map(|_| vec![0; over32].into_boxed_slice())
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let mut z = (0..len)
+            .map(|_| vec![0; over32].into_boxed_slice())
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let r = vec![0; len].into_boxed_slice();
 
         for i in 0..2 * n + 1 {
             if i < n {
-                x[i][i >> 5] = pw[i & 31];
+                x[i][i >> 5] = PW[i & 31];
             } else if i < 2 * n {
                 let j = i - n;
-                z[i][j >> 5] = pw[j & 31];
+                z[i][j >> 5] = PW[j & 31];
             }
         }
 
-        Self {
-            n,
-            x,
-            z,
-            r,
-            over32,
-            pw,
-        }
+        Self { n, x, z, r, over32 }
     }
 
     pub fn run<I>(&mut self, iter: I) -> Measurements<'_, I::IntoIter>
@@ -71,7 +75,7 @@ impl State {
         let mut ran = false;
 
         let b5 = b >> 5;
-        let pw = self.pw[b & 31];
+        let pw = PW[b & 31];
         let mut p = 0;
         for a in 0..self.n
         // loop over stabilizer generators
@@ -128,24 +132,34 @@ impl State {
             } else {
                 return 0;
             }
-            /*for (i = m+1; i < self.n; i++)
-                    if (self.x[i][b5]&pw)
-                    {
-                            rowmult(q, m + self.n, i + self.n);
-                            rowmult(q, i, m);
-                    }
-            return (int)self.r[m + self.n];*/
         }
 
         return 0;
+    }
+
+    pub fn print_ket(&mut self) {
+        let g = self.gaussian_elimination();
+        println!("2^{g} nonzero basis states");
+
+        self.print_basis_state();
+
+        for t in 0..PW[g] - 1 {
+            let t2 = t ^ (t + 1);
+            for i in 0..g {
+                if t2 & PW[i] > 0 {
+                    self.rowmult(2 * self.n, self.n + i);
+                }
+            }
+            self.print_basis_state();
+        }
     }
 
     fn clifford(&mut self, i: usize, k: usize) -> i32 {
         let mut e = 0;
 
         for j in 0..self.over32 {
-            for l in 0..self.pw.len() {
-                let pw = self.pw[l];
+            for l in 0..PW.len() {
+                let pw = PW[l];
                 // X
                 if (self.x[k][j] & pw) > 0 && (!(self.z[k][j] & pw)) > 0 {
                     if (self.x[i][j] & pw) > 0 && (self.z[i][j] & pw) > 0 {
@@ -194,7 +208,7 @@ impl State {
         let mut k = i;
         for j in 0..self.n {
             let j5 = j >> 5;
-            let pw = self.pw[j & 31];
+            let pw = PW[j & 31];
             for a in i..2 * self.n {
                 // Find a generator containing X in jth column
                 if (self.x[a][j5] & pw) > 0 {
@@ -221,7 +235,7 @@ impl State {
 
         for j in 0..self.n {
             let j5 = j >> 5;
-            let pw = self.pw[j & 31];
+            let pw = PW[j & 31];
             let mut k = i;
             for a in i..2 * self.n {
                 // Find a generator containing Z in jth column
@@ -263,7 +277,7 @@ impl State {
             }
             for j in 0..self.n {
                 let j5 = j >> 5;
-                let pw = self.pw[j & 31];
+                let pw = PW[j & 31];
                 if (!(self.x[i][j5] & pw > 0)) && (!(self.z[i][j5] & pw > 0)) {
                     print!("I");
                 }
@@ -281,29 +295,12 @@ impl State {
         print!("\n");
     }
 
-    pub fn print_ket(&mut self) {
-        let g = self.gaussian_elimination();
-        println!("2^{g} nonzero basis states");
-
-        self.print_basis_state();
-
-        for t in 0..self.pw[g] - 1 {
-            let t2 = t ^ (t + 1);
-            for i in 0..g {
-                if t2 & self.pw[i] > 0 {
-                    self.rowmult(2 * self.n, self.n + i);
-                }
-            }
-            self.print_basis_state();
-        }
-    }
-
     fn print_basis_state(&self) {
         let mut e = self.r[2 * self.n];
 
         for j in 0..self.n {
             let j5 = j >> 5;
-            let pw = self.pw[j & 31];
+            let pw = PW[j & 31];
 
             // Pauli operator is "Y"
             if (self.x[2 * self.n][j5] & pw) > 0 && (self.z[2 * self.n][j5] & pw) > 0 {
@@ -321,7 +318,7 @@ impl State {
 
         for j in 0..self.n {
             let j5 = j >> 5;
-            let pw = self.pw[j & 31];
+            let pw = PW[j & 31];
 
             if (self.x[2 * self.n][j5] & pw) > 0 {
                 print!("1")
@@ -342,11 +339,11 @@ impl State {
         if b < self.n {
             let b5 = b >> 5;
             let b31 = b & 31;
-            self.x[i][b5] = self.pw[b31];
+            self.x[i][b5] = PW[b31];
         } else {
             let b5 = (b - self.n) >> 5;
             let b31 = (b - self.n) & 31;
-            self.z[i][b5] = self.pw[b31];
+            self.z[i][b5] = PW[b31];
         }
     }
 

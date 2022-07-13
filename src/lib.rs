@@ -12,13 +12,22 @@ impl State {
     pub fn new(n: usize) -> Self {
         let len = 2 * n + 1;
         let over32 = (n >> 5) + 1;
-        let x = vec![vec![0; over32]; len];
-        let z = vec![vec![0; over32]; len];
+        let mut x = vec![vec![0; over32]; len];
+        let mut z = vec![vec![0; over32]; len];
         let r = vec![0; len];
 
         let mut pw = [1; 32];
         for i in 1..pw.len() {
             pw[i] = 2 * pw[i - 1];
+        }
+
+        for i in 0..2 * n + 1 {
+            if i < n {
+                x[i][i >> 5] = pw[i & 31];
+            } else if i < 2 * n {
+                let j = i - n;
+                z[i][j >> 5] = pw[j & 31];
+            }
         }
 
         Self {
@@ -28,6 +37,19 @@ impl State {
             r,
             over32,
             pw,
+        }
+    }
+
+    pub fn hadamard(&mut self, b: usize) {
+        let b5 = b >> 5;
+        let pw = self.pw[b & 31];
+        for i in 0..2 * self.n {
+            let tmp = self.x[i][b5];
+            self.x[i][b5] ^= (self.x[i][b5] ^ self.z[i][b5]) & pw;
+            self.z[i][b5] ^= (self.z[i][b5] ^ tmp) & pw;
+            if (self.x[i][b5] & pw) > 0 && (self.z[i][b5] & pw) > 0 {
+                self.r[i] = (self.r[i] + 2) % 4;
+            }
         }
     }
 
@@ -141,7 +163,7 @@ impl State {
 
     pub fn print_ket(&mut self) {
         let g = self.gaussian_elimination();
-        println!("{g} nonzero basis states");
+        println!("2^{g} nonzero basis states");
 
         self.print_basis_state();
 
@@ -226,7 +248,8 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut state = State::new(2);
+        let mut state = State::new(1);
+        state.hadamard(0);
         state.print_ket();
     }
 }

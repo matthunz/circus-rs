@@ -1,3 +1,43 @@
+pub struct HadamardGate {
+    target: usize,
+}
+
+impl Gate for HadamardGate {
+    fn apply(&self, state: &mut State) {
+        let b5 = self.target >> 5;
+        let pw = state.pw[self.target & 31];
+        for i in 0..2 * state.n {
+            let tmp = state.x[i][b5];
+            state.x[i][b5] ^= (state.x[i][b5] ^ state.z[i][b5]) & pw;
+            state.z[i][b5] ^= (state.z[i][b5] ^ tmp) & pw;
+            if (state.x[i][b5] & pw) > 0 && (state.z[i][b5] & pw) > 0 {
+                state.r[i] = (state.r[i] + 2) % 4;
+            }
+        }
+    }
+}
+
+pub enum Gates {
+    Hadamard(HadamardGate),
+}
+
+impl Gate for Gates {
+    fn apply(&self, state: &mut State) {
+        match self {
+            Self::Hadamard(h) => h.apply(state),
+        }
+    }
+}
+
+pub enum Instruction {
+    Gate(Gates),
+    Measure { target: usize },
+}
+
+pub trait Gate {
+    fn apply(&self, state: &mut State);
+}
+
 pub struct State {
     n: usize,
     x: Vec<Vec<u64>>,
@@ -37,6 +77,22 @@ impl State {
             r,
             over32,
             pw,
+        }
+    }
+
+    pub fn run<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = Instruction>,
+    {
+        for instruction in iter.into_iter() {
+            match instruction {
+                Instruction::Gate(gate) => {
+                    gate.apply(self);
+                }
+                Instruction::Measure { target } => {
+                    todo!()
+                }
+            }
         }
     }
 

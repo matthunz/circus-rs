@@ -1,6 +1,7 @@
 use super::Gate;
 use crate::{State, PW};
 
+#[derive(Clone, Copy, Debug)]
 pub struct CNotGate {
     pub target: usize,
     pub control: usize,

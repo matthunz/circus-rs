@@ -1,6 +1,7 @@
 use super::Gate;
 use crate::{State, PW};
 
+#[derive(Clone, Copy, Debug)]
 pub struct HadamardGate {
     pub target: usize,
 }

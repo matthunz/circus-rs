@@ -161,6 +161,39 @@ impl State {
         g
     }
 
+    pub fn print(&self) {
+        for i in 0..2 * self.n {
+            if i == self.n {
+                print!("\n");
+                for _ in 0..self.n + 1 {
+                    print!("-");
+                }
+            }
+            if self.r[i] == 2 {
+                print!("\n-");
+            } else {
+                print!("\n+");
+            }
+            for j in 0..self.n {
+                let j5 = j >> 5;
+                let pw = self.pw[j & 31];
+                if (!(self.x[i][j5] & pw > 0)) && (!(self.z[i][j5] & pw > 0)) {
+                    print!("I");
+                }
+                if (self.x[i][j5] & pw > 0) && (!(self.z[i][j5] & pw > 0)) {
+                    print!("X");
+                }
+                if (self.x[i][j5] & pw > 0) && (self.z[i][j5] & pw > 0) {
+                    print!("Y");
+                }
+                if (!(self.x[i][j5] & pw) > 0) && (self.z[i][j5] & pw > 0) {
+                    print!("Z");
+                }
+            }
+        }
+        print!("\n");
+    }
+
     pub fn print_ket(&mut self) {
         let g = self.gaussian_elimination();
         println!("2^{g} nonzero basis states");
@@ -250,6 +283,9 @@ mod tests {
     fn it_works() {
         let mut state = State::new(1);
         state.hadamard(0);
+        state.print();
+        state.gaussian_elimination();
+        state.print();
         state.print_ket();
     }
 }

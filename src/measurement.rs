@@ -1,3 +1,4 @@
+/// A measurement of a bit as a fixed or random `1` or `0`.
 #[derive(Clone, Copy, Debug)]
 pub struct Measurement {
     byte: u8,

@@ -22,21 +22,3 @@ const PW: [u64; 32] = {
     }
     pw
 };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let mut state = State::new(2);
-        state.hadamard(0);
-        state.cnot(0, 1);
-        dbg!(state.measure(1));
-
-        state.print();
-        state.nonzero();
-        state.print();
-        state.print_ket();
-    }
-}

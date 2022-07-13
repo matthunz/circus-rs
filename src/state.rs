@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::{
     gate::{CNotGate, Gate, HadamardGate},
     Instruction, Measurement, PW,
@@ -22,6 +24,9 @@ pub struct State {
     /// Number of qubits.
     pub n: usize,
 
+    /// floor(n/8)+1
+    pub over32: usize,
+
     /// (2n+1)*n matrix for stabilizer/destabilizer x bits.
     pub x: BinaryMatrix,
 
@@ -30,9 +35,6 @@ pub struct State {
 
     /// Phase bits (0 for +1, 1 for i, 2 for -1, 3 for -i). Normally either 0 or 2.
     pub r: Box<[i32]>,
-
-    /// floor(n/8)+1
-    pub over32: usize,
 }
 
 impl State {
@@ -68,14 +70,14 @@ impl State {
 
     /// Apply the controlled-NOT gate, also known as the controlled-x (CX) gate.
     /// It performs a NOT on the `target` whenever the `control` is in state `|1⟩`.
-    pub fn cnot(&mut self, target: usize, control: usize) {
+    pub fn cx(&mut self, target: usize, control: usize) {
         let gate = CNotGate { target, control };
         gate.apply(self);
     }
 
     /// Apply the Hadamard gate.
     /// Rotates the states `|0⟩` and `|1⟩` to `|+⟩` and `|-⟩`, respectively.
-    pub fn hadamard(&mut self, target: usize) {
+    pub fn h(&mut self, target: usize) {
         let gate = HadamardGate { target };
         gate.apply(self);
     }
@@ -87,16 +89,14 @@ impl State {
         let b5 = target >> 5;
         let pw = PW[target & 31];
         let mut p = 0;
-        for a in 0..self.n
+
         // loop over stabilizer generators
-        {
+        for a in 0..self.n {
+            // if a Zbar does NOT commute with Z_b (the operator being measured), then outcome is random
             if (self.x[a + self.n][b5] & pw) > 0 {
                 is_indeterminate = true;
-            } // if a Zbar does NOT commute with Z_b (the
-            if is_indeterminate {
                 break;
-            } // operator being measured), then outcome is random
-
+            }
             p += 1;
         }
 
@@ -203,11 +203,12 @@ impl State {
         g
     }
 
-    pub fn print_ket(&mut self) {
+    /// Format the current state as a string in bra-ket notation.
+    pub fn ket(&mut self) -> String {
         let g = self.nonzero();
-        println!("2^{g} nonzero basis states");
 
-        self.print_basis_state();
+        let mut s = String::new();
+        self.ket_basis_state(&mut s);
 
         for t in 0..PW[g] - 1 {
             let t2 = t ^ (t + 1);
@@ -216,8 +217,10 @@ impl State {
                     self.rowmult(2 * self.n, self.n + i);
                 }
             }
-            self.print_basis_state();
+            self.ket_basis_state(&mut s);
         }
+
+        s
     }
 
     fn clifford(&mut self, i: usize, k: usize) -> i32 {
@@ -269,40 +272,7 @@ impl State {
         }
     }
 
-    pub fn print(&self) {
-        for i in 0..2 * self.n {
-            if i == self.n {
-                print!("\n");
-                for _ in 0..self.n + 1 {
-                    print!("-");
-                }
-            }
-            if self.r[i] == 2 {
-                print!("\n-");
-            } else {
-                print!("\n+");
-            }
-            for j in 0..self.n {
-                let j5 = j >> 5;
-                let pw = PW[j & 31];
-                if (!(self.x[i][j5] & pw > 0)) && (!(self.z[i][j5] & pw > 0)) {
-                    print!("I");
-                }
-                if (self.x[i][j5] & pw > 0) && (!(self.z[i][j5] & pw > 0)) {
-                    print!("X");
-                }
-                if (self.x[i][j5] & pw > 0) && (self.z[i][j5] & pw > 0) {
-                    print!("Y");
-                }
-                if (!(self.x[i][j5] & pw) > 0) && (self.z[i][j5] & pw > 0) {
-                    print!("Z");
-                }
-            }
-        }
-        print!("\n");
-    }
-
-    fn print_basis_state(&self) {
+    fn ket_basis_state(&self, s: &mut String) {
         let mut e = self.r[2 * self.n];
 
         for j in 0..self.n {
@@ -316,10 +286,10 @@ impl State {
         }
 
         match e {
-            0 => print!(" +|"),
-            1 => print!("+i|"),
-            2 => print!(" -|"),
-            3 => print!("-i|"),
+            0 => s.push_str(" +|"),
+            1 => s.push_str("+i|"),
+            2 => s.push_str(" -|"),
+            3 => s.push_str("-i|"),
             _ => {}
         }
 
@@ -328,13 +298,13 @@ impl State {
             let pw = PW[j & 31];
 
             if (self.x[2 * self.n][j5] & pw) > 0 {
-                print!("1")
+                s.push_str("1")
             } else {
-                print!("0")
+                s.push_str("0")
             }
         }
 
-        println!(">");
+        s.push_str(">\n");
     }
 
     fn rowset(&mut self, i: usize, b: usize) {
@@ -374,6 +344,41 @@ impl State {
             self.x[i][j] ^= self.x[k][j];
             self.z[i][j] ^= self.z[k][j];
         }
+    }
+}
+
+impl fmt::Display for State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for i in 0..2 * self.n {
+            if i == self.n {
+                f.write_str("\n")?;
+                for _ in 0..self.n + 1 {
+                    f.write_str("-")?;
+                }
+            }
+            if self.r[i] == 2 {
+                f.write_str("\n-")?;
+            } else {
+                f.write_str("\n+")?;
+            }
+            for j in 0..self.n {
+                let j5 = j >> 5;
+                let pw = PW[j & 31];
+                if (!(self.x[i][j5] & pw > 0)) && (!(self.z[i][j5] & pw > 0)) {
+                    f.write_str("I")?;
+                }
+                if (self.x[i][j5] & pw > 0) && (!(self.z[i][j5] & pw > 0)) {
+                    f.write_str("X")?;
+                }
+                if (self.x[i][j5] & pw > 0) && (self.z[i][j5] & pw > 0) {
+                    f.write_str("Y")?;
+                }
+                if (!(self.x[i][j5] & pw) > 0) && (self.z[i][j5] & pw > 0) {
+                    f.write_str("Z")?;
+                }
+            }
+        }
+        f.write_str("\n")
     }
 }
 

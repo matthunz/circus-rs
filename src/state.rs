@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{
-    gate::{CNotGate, Gate, HadamardGate},
+    gate::{CNotGate, Gate, HadamardGate, PhaseGate},
     Instruction, Measurement, PW,
 };
 
@@ -18,7 +18,7 @@ pub fn binary_matrix(n: usize) -> BinaryMatrix {
         .into_boxed_slice()
 }
 
-/// Quantum state (from [Improved Simulation of Stabilizer Circuits](https://arxiv.org/abs/quant-ph/0406196)
+/// Quantum stabilizer state (from [Improved Simulation of Stabilizer Circuits](https://arxiv.org/abs/quant-ph/0406196)
 /// by Scott Aaronson and Daniel Gottesman)
 pub struct State {
     /// Number of qubits.
@@ -79,6 +79,12 @@ impl State {
     /// Rotates the states `|0⟩` and `|1⟩` to `|+⟩` and `|-⟩`, respectively.
     pub fn h(&mut self, target: usize) {
         let gate = HadamardGate { target };
+        gate.apply(self);
+    }
+
+    /// Apply a phase gate (|0⟩->|0⟩, |1⟩->i|1⟩) to the `target` qubit.
+    pub fn p(&mut self, target: usize) {
+        let gate = PhaseGate { target };
         gate.apply(self);
     }
 

@@ -4,6 +4,9 @@ pub use cnot::CNotGate;
 mod hadamard;
 pub use hadamard::HadamardGate;
 
+mod phase;
+pub use phase::PhaseGate;
+
 use crate::State;
 
 pub trait Gate {
@@ -13,6 +16,7 @@ pub trait Gate {
 pub enum Gates {
     CNot(CNotGate),
     Hadamard(HadamardGate),
+    Phase(PhaseGate),
 }
 
 impl Gate for Gates {
@@ -20,6 +24,7 @@ impl Gate for Gates {
         match self {
             Self::CNot(cx) => cx.apply(state),
             Self::Hadamard(h) => h.apply(state),
+            Self::Phase(p) => p.apply(state),
         }
     }
 }

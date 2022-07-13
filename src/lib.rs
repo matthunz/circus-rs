@@ -1,41 +1,9 @@
-pub struct HadamardGate {
-    target: usize,
-}
-
-impl Gate for HadamardGate {
-    fn apply(&self, state: &mut State) {
-        let b5 = self.target >> 5;
-        let pw = state.pw[self.target & 31];
-        for i in 0..2 * state.n {
-            let tmp = state.x[i][b5];
-            state.x[i][b5] ^= (state.x[i][b5] ^ state.z[i][b5]) & pw;
-            state.z[i][b5] ^= (state.z[i][b5] ^ tmp) & pw;
-            if (state.x[i][b5] & pw) > 0 && (state.z[i][b5] & pw) > 0 {
-                state.r[i] = (state.r[i] + 2) % 4;
-            }
-        }
-    }
-}
-
-pub enum Gates {
-    Hadamard(HadamardGate),
-}
-
-impl Gate for Gates {
-    fn apply(&self, state: &mut State) {
-        match self {
-            Self::Hadamard(h) => h.apply(state),
-        }
-    }
-}
+pub mod gate;
+pub use gate::{CNotGate, Gate, Gates, HadamardGate};
 
 pub enum Instruction {
     Gate(Gates),
     Measure { target: usize },
-}
-
-pub trait Gate {
-    fn apply(&self, state: &mut State);
 }
 
 pub struct State {
@@ -43,7 +11,6 @@ pub struct State {
     x: Vec<Vec<u64>>,
     z: Vec<Vec<u64>>,
     r: Vec<i32>,
-    // TODO maybe i64?
     over32: usize,
     pw: [u64; 32],
 }
@@ -80,33 +47,97 @@ impl State {
         }
     }
 
-    pub fn run<I>(&mut self, iter: I)
+    pub fn run<I>(&mut self, iter: I) -> Measurements<'_, I::IntoIter>
     where
         I: IntoIterator<Item = Instruction>,
     {
-        for instruction in iter.into_iter() {
-            match instruction {
-                Instruction::Gate(gate) => {
-                    gate.apply(self);
-                }
-                Instruction::Measure { target } => {
-                    todo!()
-                }
-            }
+        Measurements {
+            state: self,
+            iter: iter.into_iter(),
         }
     }
 
-    pub fn hadamard(&mut self, b: usize) {
+    pub fn cnot(&mut self, target: usize, control: usize) {
+        let gate = CNotGate { target, control };
+        gate.apply(self);
+    }
+
+    pub fn hadamard(&mut self, target: usize) {
+        let gate = HadamardGate { target };
+        gate.apply(self);
+    }
+
+    pub fn measure(&mut self, b: usize) -> u8 {
+        let mut ran = false;
+
         let b5 = b >> 5;
         let pw = self.pw[b & 31];
-        for i in 0..2 * self.n {
-            let tmp = self.x[i][b5];
-            self.x[i][b5] ^= (self.x[i][b5] ^ self.z[i][b5]) & pw;
-            self.z[i][b5] ^= (self.z[i][b5] ^ tmp) & pw;
-            if (self.x[i][b5] & pw) > 0 && (self.z[i][b5] & pw) > 0 {
-                self.r[i] = (self.r[i] + 2) % 4;
+        let mut p = 0;
+        for a in 0..self.n
+        // loop over stabilizer generators
+        {
+            if (self.x[a + self.n][b5] & pw) > 0 {
+                ran = true;
+            } // if a Zbar does NOT commute with Z_b (the
+            if ran {
+                break;
+            } // operator being measured), then outcome is random
+
+            p += 1;
+        }
+
+        // If outcome is indeterminate
+        if ran {
+            self.rowcopy(p, p + self.n); // Set Xbar_p := Zbar_p
+            self.rowset(p + self.n, b + self.n); // Set Zbar_p := Z_b
+            self.r[p + self.n] = 2 * (rand::random::<i32>() % 2); // moment of quantum randomness
+            for i in 0..2 * self.n {
+                // Now update the Xbar's and Zbar's that don't commute with
+                if (i != p) && (self.x[i][b5] & pw > 0) {
+                    self.rowmult(i, p);
+                } // Z_b
+            }
+
+            if self.r[p + self.n] > 0 {
+                return 3;
+            } else {
+                return 2;
             }
         }
+
+        // If outcome is determinate
+        if !ran {
+            let mut m = 0;
+            for a in 0..self.n {
+                // Before we were checking if stabilizer generators commute
+                if self.x[a][b5] & pw > 0 {
+                    // with Z_b; now we're checking destabilizer generators
+                    break;
+                }
+                m += 1;
+            }
+            self.rowcopy(2 * self.n, m + self.n);
+            for i in (m + 1)..self.n {
+                if self.x[i][b5] & pw > 0 {
+                    self.rowmult(2 * self.n, i + self.n);
+                }
+            }
+
+            if self.r[2 * self.n] > 0 {
+                return 1;
+            } else {
+                return 0;
+            }
+            /*for (i = m+1; i < self.n; i++)
+                    if (self.x[i][b5]&pw)
+                    {
+                            rowmult(q, m + self.n, i + self.n);
+                            rowmult(q, i, m);
+                    }
+            return (int)self.r[m + self.n];*/
+        }
+
+        return 0;
     }
 
     fn clifford(&mut self, i: usize, k: usize) -> i32 {
@@ -265,8 +296,6 @@ impl State {
             }
             self.print_basis_state();
         }
-
-        println!();
     }
 
     fn print_basis_state(&self) {
@@ -301,7 +330,24 @@ impl State {
             }
         }
 
-        print!(">");
+        println!(">");
+    }
+
+    fn rowset(&mut self, i: usize, b: usize) {
+        for j in 0..self.over32 {
+            self.x[i][j] = 0;
+            self.z[i][j] = 0;
+        }
+        self.r[i] = 0;
+        if b < self.n {
+            let b5 = b >> 5;
+            let b31 = b & 31;
+            self.x[i][b5] = self.pw[b31];
+        } else {
+            let b5 = (b - self.n) >> 5;
+            let b31 = (b - self.n) & 31;
+            self.z[i][b5] = self.pw[b31];
+        }
     }
 
     fn rowcopy(&mut self, i: usize, k: usize) {
@@ -327,6 +373,33 @@ impl State {
     }
 }
 
+pub struct Measurements<'s, I> {
+    state: &'s mut State,
+    iter: I,
+}
+
+impl<I> Iterator for Measurements<'_, I>
+where
+    I: Iterator<Item = Instruction>,
+{
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(instruction) = self.iter.next() {
+                match instruction {
+                    Instruction::Gate(gate) => {
+                        gate.apply(self.state);
+                    }
+                    Instruction::Measure { target } => break Some(self.state.measure(target)),
+                }
+            } else {
+                break None;
+            }
+        }
+    }
+}
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
@@ -337,8 +410,11 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut state = State::new(1);
+        let mut state = State::new(2);
         state.hadamard(0);
+        state.cnot(0, 1);
+        dbg!(state.measure(1));
+
         state.print();
         state.gaussian_elimination();
         state.print();

@@ -11,12 +11,14 @@ pub trait Gate {
 }
 
 pub enum Gates {
+    CNot(CNotGate),
     Hadamard(HadamardGate),
 }
 
 impl Gate for Gates {
     fn apply(&self, state: &mut State) {
         match self {
+            Self::CNot(cx) => cx.apply(state),
             Self::Hadamard(h) => h.apply(state),
         }
     }
